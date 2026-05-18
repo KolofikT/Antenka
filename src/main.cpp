@@ -1,55 +1,101 @@
-#include "robotka.h"
 #include <Arduino.h>
-#include <string>
+#include "robotka.h"
 
-void clear() {
-    rb::Manager::get().oled().fill(rb::Oled::Black);
-    rb::Manager::get().oled().updateScreen();
-}
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-void waitToNextTest() {
-    delay(3000);
-    clear();
-}
+
+// Nesmím předělávat --- já NZ
+
+
+//!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+typedef struct __attribute__((packed)) {
+    uint8_t sensor_id;
+    uint16_t distance; // mm
+} SensorData;
+
+SensorData received_data;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 void setup() {
-    printf("RB3204-RBCX s Robotkou\n");
-
-    // Inicializace knihovny Robotka
     rkConfig cfg;
     rkSetup(cfg);
+    printf("Robotka prijimac UART started!\n");
+    
+    // Inicializace UART komunikace
+    rkUartInit();
 
-    rkLedRed(true);
-
-    printf("Inicializace MPU... (S ROBOTEM NEHYBAT!)\n");
-    rkMpuInit();
-    printf("MPU Inicializovano!\n");
-
-    uint32_t startTime = millis();
-    while (millis() - startTime < 10000) {
-        printf("MPU - angle: X: %2.2f Y: %2.2f Z: %2.2f\n", rkMpuGetAngleX(), rkMpuGetAngleY(), rkMpuGetAngleZ());
-        
-        if (rkButtonIsPressed(BTN_UP)) {
-            rkMpuResetZ();
-            printf("--- RESET Z (stisknuto BTN_UP) ---\n");
-        }
-        
-        delay(100);
-    }
-
-    printf("10 sekund ubehlo, zhasinam vypis a zacinam blikat LEDkama!\n");
-    while (true) {
-        // Blikáme červenou, žlutou a zelenou LED (modrá fyzicky nefunguje)
-        rkLedRed(true);
-        rkLedYellow(true);
-        rkLedGreen(true);
-        delay(500);
-        
-        rkLedRed(false);
-        rkLedYellow(false);
-        rkLedGreen(false);
-        delay(500);
-    }
+    printf("Cekam na data ze senzoru...\n");
 }
 
-void loop() {}
+void loop() {
+    // Zkusíme přijmout data
+    if (rkUartReceive(&received_data, sizeof(received_data))) {
+        // Pokud jsme úspěšně přijali data, vypíšeme je
+        printf("Senzor ID: %d, Vzdalenost: %d mm\n", received_data.sensor_id, received_data.distance);
+        if(received_data.sensor_id == 3){
+          printf("-------------------------------------------------------- \n");
+          std::cout<<" "<<std::endl;
+        }
+    }
+
+    // Malá pauza, abychom nezahltili procesor
+    delay(10); 
+}
+
