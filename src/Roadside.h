@@ -2,8 +2,10 @@
 
 #include <cstdio>
 #include <vector>
+#include <functional>
 #include <cmath> // Přidáno pro matematickou funkci abs
 #include "Movement.h"
+#include "Shoulder.h"
 
 // Definice barev týmů
 enum class TeamColor {
@@ -52,7 +54,24 @@ private:
     std::vector<Battery> vBatteries;
     TeamColor MyColor;
 
+    // Pomocná funkce pro vygenerování kontroly překážek na základě směru jízdy
+    std::function<bool()> fGetObstacleChecker(float rDistanceToGo) {
+        bool bForward = (rDistanceToGo > 0);
+        return [this, bForward]() -> bool {
+            uint32_t dist = rkUltraMeasure(bForward ? iUltraFront : iUltraBack);
+            // Hodnota 0 znamená chybu měření (např. senzor nic nevidí nebo není zapojen), proto ignorujeme 0
+            return (dist > 0 && dist <= iObstacleStopZoneMm);
+        };
+    }
+
 public:
+    // --- Nastavení Ultrazvuků (ID 1-4 podle portů na desce) ---
+    uint8_t iUltraFront = 1;
+    uint8_t iUltraBack  = 2;
+    uint8_t iUltraLeft  = 3;
+    uint8_t iUltraRight = 4;
+    
+    uint32_t iObstacleStopZoneMm = 150; // Zóna, ve které robot zastaví před překážkou (v mm)
 
     void fInitGame(int iButtonClicks, TeamColor ChosenColor) {
         std::vector<std::vector<TeamColor>> vAllLayouts = {
@@ -225,7 +244,7 @@ public:
             float rDistanceToGo = rX - fRobotX;
             
             // Jízda na místo s neustálou detekcí překážek
-            MoveResult result = move_acc_avoid(rDistanceToGo, 60, []() { return false; }, 5000);
+            MoveResult result = move_acc_avoid(rDistanceToGo, 60, fGetObstacleChecker(rDistanceToGo), 5000);
             
             // Aktualizace přesné X-ové pozice na hřišti (ať už dojel nebo ne)
             fRobotX += result.traveled_mm; 
@@ -233,15 +252,27 @@ public:
             // Robot úspěšně dojel až do cíle k baterii bez předčasného přerušení
             if (result.success) {
 
-                int iBaseAngle = (MyColor == TeamColor::Blue) ? 90 : -90;
-                // Přesun manipulátoru nad baterii
-
+                int iBasePos = (MyColor == TeamColor::Blue) ? Rameno.iLeft : Rameno.iRight;
                 
+                // Přesun manipulátoru nad baterii
+                Rameno.Side(iBasePos);
+                delay(1000);
+                
+                // Sjetí k baterii
+                Rameno.Down();
+                delay(1000);
+
                 // Uchopení baterie
+                Rameno.SideTolerance(iBasePos);
+                delay(1000);
 
+                // Zvednutí baterie
+                Rameno.Up();
+                delay(1000);
 
-                // Presun manipulátorem na pozici vhodné k pohybu robotem
-
+                // Přesun baterie na pozici vhodou k pohybu robota
+                Rameno.Center();
+                delay(1000);
 
                 // Zapsis baterie jako sebraná
                 fMarkBatteryTaken(iClosestBatteryID);
@@ -269,7 +300,7 @@ public:
             float rDistanceToGo = rX - fRobotX;
             
             // Jízda na místo s neustálou detekcí překážek
-            MoveResult result = move_acc_avoid(rDistanceToGo, 60, []() { return false; }, 5000);
+            MoveResult result = move_acc_avoid(rDistanceToGo, 60, fGetObstacleChecker(rDistanceToGo), 5000);
             
             // Aktualizace přesné X-ové pozice na hřišti (ať už dojel nebo ne)
             fRobotX += result.traveled_mm; 
@@ -278,18 +309,32 @@ public:
             if (result.success) {
 
                 // Rozhodnutí na jakou stranu se bude Manipulátor otáčet dle barvy Týmu
-                int iBaseAngle = (MyColor == TeamColor::Blue) ? -90 : 90;
+                int iBasePos = (MyColor == TeamColor::Blue) ? Rameno.iRight : Rameno.iLeft;
                 
                 // Pohyb Manipulátorem nad Dock
-
-
-                // Puštění Baterie
-
-
-                // Vrácení Manipulátoru do HomePos
-
-
+                Rameno.Side(iBasePos);
+                delay(1000);
                 
+                // Sjetí k Docku
+                Rameno.Down();
+                delay(1000);
+
+                // Puštění baterie
+                Rameno.Magnet(false);
+                delay(1000);
+
+                // Zvednutí prázdného ramene
+                Rameno.Up();
+                delay(1000);
+
+                // Přesun baterie na pozici vhodou k pohybu robota
+                Rameno.Center();
+                delay(1000);
+
+                // Nachystání magnetu na další baterii
+                Rameno.Magnet(true);
+                delay(1000);
+
                 // Zápis Docku jako plný, aby se k němu už příště nejezdilo
                 fMarkDockFull(iClosestDockID);
                 
@@ -309,7 +354,8 @@ public:
     void fPushTruckAway(float& rRobotY, float rDistanceY) {
         printf("Zacinam odtlacovat nakladak o %.1f mm v ose Y.\n", rDistanceY);
 
-        // Jízda na danou vzdálenost s detekcí překážek (pomalá a silová)
+        // Jízda na danou vzdálenost (pomalá a silová)
+        // POZOR: Tady záměrně detekci ZVYPNEME ([]() { return false; }), protože náklaďák JE překážka, kterou chceme nabourat!
         MoveResult result = move_acc_avoid(rDistanceY, 40, []() { return false; }, 8000);
 
         // Aktualizace přesné Y-ové pozice na hřišti
