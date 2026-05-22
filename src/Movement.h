@@ -161,9 +161,9 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
  * \param angle Úhel vázaný na rotaci (ve stupních).
  * \param speed Maximální rychlost v %.
  * \param roztec_kol Šířka mezi koly (výchozí 155.0 mm).
- * \param korekce Konstanta z kalibrace (výchozí 0.947 pro levou stranu).
+ * \param korekce Konstanta z kalibrace (výchozí 0.953 pro levou stranu).
  */
-inline void TurnOnSpotLeft_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.947f) {
+inline void TurnOnSpotLeft_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.953f) {
     if (angle <= 0 || speed <= 0) return;
     
     // Výpočet cílové dráhy v mm pro jedno kolo
@@ -239,9 +239,9 @@ inline void TurnOnSpotLeft_acc(float angle, float speed, float roztec_kol = 155.
  * \param angle Úhel vázaný na rotaci (ve stupních).
  * \param speed Maximální rychlost v %.
  * \param roztec_kol Šířka mezi koly (výchozí 155.0 mm).
- * \param korekce Konstanta z kalibrace (výchozí 0.973 pro pravou stranu).
+ * \param korekce Konstanta z kalibrace (výchozí 0.948 pro pravou stranu).
  */
-inline void TurnOnSpotRight_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.973f) {
+inline void TurnOnSpotRight_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.948f) {
     if (angle <= 0 || speed <= 0) return;
     
     float target_mm = korekce * (M_PI * roztec_kol) * (angle / 360.0f);

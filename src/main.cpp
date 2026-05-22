@@ -42,13 +42,13 @@ void setup() {
 
     //cfg.prevod_motoru = 1983.3f; // pro 12v ==  41.62486f * 48.f, pro 6v == 1981.3f
     cfg.prevod_motoru = 889.0f; // Finální kalibrace: ujel 970 mm misto 1000 mm -> (1000/970)*862.3
-    cfg.left_wheel_diameter = 66.0; // v mm
-    cfg.right_wheel_diameter = 66.0; // v mm
+    cfg.left_wheel_diameter = 66.1; // UMBmark prumer: kompenzace staceni doprava
+    cfg.right_wheel_diameter = 65.9; // UMBmark prumer: kompenzace staceni doprava
     cfg.roztec_kol = 155.0; // v mm
     cfg.konstanta_radius_vnejsi_kolo = 0.96f; // Korekční faktor pro vnější kolo při zatáčení
     cfg.konstanta_radius_vnitrni_kolo = 0.96f; // Korekční faktor pro vnitřní kolo při zatáčení
-    cfg.korekce_nedotacivosti_left = 0.947f; // Kalibrace: otocil 365 misto 360 -> (360/365)*0.96
-    cfg.korekce_nedotacivosti_right = 0.973f; // Kalibrace: otocil 370 misto 360 -> (360/370)*1.0
+    cfg.korekce_nedotacivosti_left = 0.953f; // Kalibrace z 10x 90° (900/895 * 0.948)
+    cfg.korekce_nedotacivosti_right = 0.948f; // Kalibrace z 10x 90° (900/910 * 0.959)
     cfg.Button1 = 27; // RIGHT
     cfg.Button2 = 14; // LEFT
     cfg.motor_id_left = 4;
@@ -85,6 +85,14 @@ void setup() {
     // Nastavení Chytrých serv
     rkSmartServoInit(0, 0, 240, 500, 3);
     rkSmartServoInit(1, 0, 240);
+
+    // Zvednuti ramene a presun na stred
+    Rameno.Up();
+    delay(1000); // Pockame, az vyjede nahoru
+    Rameno.Center();
+    delay(1000);
+
+    Rameno.fSetDefaultSmartServosSpeed(200);
 
     
     //rkWaitForStart(); 
@@ -220,12 +228,55 @@ void loop() {
     // }
 
     // Ruční nastavování pozice Manipulátoru
-    if (rkButtonIsPressed(BTN_UP))      { rkSmartServoMove(0, rkSmartServosPosicion(0) + 5); }
+    if (rkButtonIsPressed(BTN_UP))      {  }
     if (rkButtonIsPressed(BTN_DOWN))    { rkSmartServoMove(0, rkSmartServosPosicion(0) - 5 ); } 
-    if (rkButtonIsPressed(BTN_LEFT))    { rkSmartServoMove(1, rkSmartServosPosicion(1) + 5); }
-    if (rkButtonIsPressed(BTN_RIGHT))   { rkSmartServoMove(1, rkSmartServosPosicion(1) - 5);}
-    if (rkButton1(true))           { move_acc_avoid(1000.0f, 40, []() { return false; }, 8000); }
-    if (rkButton2(true))           { TurnOnSpotRight_acc(360, 40); }
+    
+    // TEST 10x 90 stupnu VLEVO
+    if (rkButtonLeft(true)) {
+        printf("Test 10x 90 stupnu VLEVO...\n");
+        for (int i = 0; i < 10; i++) {
+            TurnOnSpotLeft_acc(90, 40);
+            delay(300);
+        }
+        printf("Test VLEVO dokoncen!\n");
+    }
+    // TEST 10x 90 stupnu VPRAVO
+    if (rkButtonRight(true)) { 
+        printf("Test 10x 90 stupnu VPRAVO...\n");
+        for (int i = 0; i < 10; i++) {
+            TurnOnSpotRight_acc(90, 40);
+            delay(300);
+        }
+        printf("Test VPRAVO dokoncen!\n");
+    }
+    
+    // KALIBRACE UMBMARK - Ctverec Vpravo (Po smeru hodinovych rucicek)
+    if (rkButton1(true)) { 
+        printf("Startuji kalibracni ctverec VPRAVO (1x)...\n");
+        for (int i = 0; i < 1; i++) {
+            for (int j = 0; j < 4; j++) {
+                move_acc_avoid(1000.0f, 40, []() { return false; }, 8000);
+                delay(300);
+                TurnOnSpotRight_acc(90, 40);
+                delay(300);
+            }
+        }
+        printf("Kalibrace VPRAVO dokoncena!\n");
+    }
+    
+    // KALIBRACE UMBMARK - Ctverec Vlevo (Proti smeru hodinovych rucicek)
+    if (rkButton2(true)) { 
+        printf("Startuji kalibracni ctverec VLEVO (1x)...\n");
+        for (int i = 0; i < 1; i++) {
+            for (int j = 0; j < 4; j++) {
+                move_acc_avoid(1000.0f, 40, []() { return false; }, 8000);
+                delay(300);
+                TurnOnSpotLeft_acc(90, 40);
+                delay(300);
+            }
+        }
+        printf("Kalibrace VLEVO dokoncena!\n");
+    }
 
 
 
