@@ -41,9 +41,9 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
     float current_base_speed = min_speed * speed_sign;
     
     // Parametry rampy a P-regulátoru
-    float decel_distance_mm = 0.8f * abs_target_speed; // Čím rychleji jede, tím dříve zpomaluje (např. při 50% -> 40 mm)
-    float accel_step = abs_target_speed / 20.0f; // Akcelerace na maximum zabere cca 200 ms
-    float decel_step = abs_target_speed / 20.0f; 
+    float decel_distance_mm = 2.5f * abs_target_speed; // Plynulé brzdění (při rychlosti 40% brzdí už 100 mm před cílem)
+    float accel_step = abs_target_speed / 100.0f; // Jemná akcelerace (rozjezd na max. rychlost zabere 1 sekundu)
+    float decel_step = abs_target_speed / 100.0f; // Jemné zpomalování bez smyku kol
     float avoid_decel_step = abs_target_speed / 5.0f; // Rychlé zastavení před překážkou (cca 50 ms)
     
     float kp = 0.8f; // Proporcionální konstanta pro P-regulátor na milimetry
@@ -68,8 +68,8 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
     float avg_pos = 0.0f;
 
     while (true) {
-        float pos_l = rkMotorsGetPositionLeft();
-        float pos_r = rkMotorsGetPositionRight();
+        float pos_l = rkMotorsGetPositionLeft(true);
+        float pos_r = rkMotorsGetPositionRight(true);
         float abs_l = std::abs(pos_l);
         float abs_r = std::abs(pos_r);
         avg_pos = (abs_l + abs_r) / 2.0f;
@@ -153,4 +153,157 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
     
     rkMotorsSetSpeed(0, 0);
     return {true, reverse ? -avg_pos : avg_pos};
+}
+
+/**
+ * \brief Plynulé otočení na místě DOLEVA s pomalým rozjezdem.
+ * 
+ * \param angle Úhel vázaný na rotaci (ve stupních).
+ * \param speed Maximální rychlost v %.
+ * \param roztec_kol Šířka mezi koly (výchozí 155.0 mm).
+ * \param korekce Konstanta z kalibrace (výchozí 0.947 pro levou stranu).
+ */
+inline void TurnOnSpotLeft_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.947f) {
+    if (angle <= 0 || speed <= 0) return;
+    
+    // Výpočet cílové dráhy v mm pro jedno kolo
+    float target_mm = korekce * (M_PI * roztec_kol) * (angle / 360.0f);
+    float abs_target_speed = std::abs(speed);
+    
+    rkMotorsSetPositionLeft(0);
+    rkMotorsSetPositionRight(0);
+    delay(50); // Reset koprocesoru
+    
+    float min_speed = 15.0f;
+    if (abs_target_speed < min_speed) { abs_target_speed = min_speed; }
+    float current_base_speed = min_speed;
+    
+    // === NASTAVENÍ RAMP ===
+    float decel_distance_mm = 4.0f * abs_target_speed; // Delší brzdná dráha (o 60 % delší)
+    float accel_step = abs_target_speed / 100.0f; // Jemná akcelerace
+    float decel_step = abs_target_speed / 200.0f; // Poloviční zpomalení (klouže déle)
+    
+    float kp = 0.8f; 
+    float max_corr = 8.0f;
+    
+    unsigned long start_time = millis();
+    uint32_t general_timeout_ms = 10000; // Timeout 10 vteřin
+    
+    auto clamp_speed = [](float s) -> int8_t {
+        if (s > 100.0f) return 100;
+        if (s < -100.0f) return -100;
+        return static_cast<int8_t>(s);
+    };
+
+    float avg_pos = 0.0f;
+
+    while (true) {
+        float pos_l = rkMotorsGetPositionLeft(true);
+        float pos_r = rkMotorsGetPositionRight(true);
+        float abs_l = std::abs(pos_l);
+        float abs_r = std::abs(pos_r);
+        avg_pos = (abs_l + abs_r) / 2.0f;
+        
+        if (avg_pos >= target_mm) break;
+        if (millis() - start_time > general_timeout_ms) break;
+        
+        float dist_remaining = target_mm - avg_pos;
+        
+        if (dist_remaining <= decel_distance_mm) {
+            current_base_speed -= decel_step;
+            if (current_base_speed < min_speed) current_base_speed = min_speed;
+        } else {
+            if (current_base_speed < abs_target_speed) {
+                current_base_speed += accel_step;
+                if (current_base_speed > abs_target_speed) current_base_speed = abs_target_speed;
+            }
+        }
+        
+        // P-regulátor na přesný střed otáčení (obě kola ujedou absolutně stejnou vzdálenost)
+        float diff = abs_l - abs_r; // Kladné -> levé ujelo víc
+        float correction = std::max(-max_corr, std::min(diff * kp, max_corr));
+        
+        float speed_l_mag = current_base_speed - correction;
+        float speed_r_mag = current_base_speed + correction;
+        
+        // DOLEVA = levé kolo couvá, pravé jede vpřed
+        rkMotorsSetSpeed(clamp_speed(-speed_l_mag), clamp_speed(speed_r_mag));
+        delay(10);
+    }
+    rkMotorsSetSpeed(0, 0);
+}
+
+/**
+ * \brief Plynulé otočení na místě DOPRAVA s pomalým rozjezdem.
+ * 
+ * \param angle Úhel vázaný na rotaci (ve stupních).
+ * \param speed Maximální rychlost v %.
+ * \param roztec_kol Šířka mezi koly (výchozí 155.0 mm).
+ * \param korekce Konstanta z kalibrace (výchozí 0.973 pro pravou stranu).
+ */
+inline void TurnOnSpotRight_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.973f) {
+    if (angle <= 0 || speed <= 0) return;
+    
+    float target_mm = korekce * (M_PI * roztec_kol) * (angle / 360.0f);
+    float abs_target_speed = std::abs(speed);
+    
+    rkMotorsSetPositionLeft(0);
+    rkMotorsSetPositionRight(0);
+    delay(50);
+    
+    float min_speed = 15.0f;
+    if (abs_target_speed < min_speed) { abs_target_speed = min_speed; }
+    float current_base_speed = min_speed;
+    
+    // === NASTAVENÍ RAMP ===
+    float decel_distance_mm = 4.0f * abs_target_speed; 
+    float accel_step = abs_target_speed / 100.0f; 
+    float decel_step = abs_target_speed / 200.0f; 
+    
+    float kp = 0.8f; 
+    float max_corr = 8.0f;
+    
+    unsigned long start_time = millis();
+    uint32_t general_timeout_ms = 10000;
+    
+    auto clamp_speed = [](float s) -> int8_t {
+        if (s > 100.0f) return 100;
+        if (s < -100.0f) return -100;
+        return static_cast<int8_t>(s);
+    };
+
+    float avg_pos = 0.0f;
+
+    while (true) {
+        float pos_l = rkMotorsGetPositionLeft(true);
+        float pos_r = rkMotorsGetPositionRight(true);
+        float abs_l = std::abs(pos_l);
+        float abs_r = std::abs(pos_r);
+        avg_pos = (abs_l + abs_r) / 2.0f;
+        
+        if (avg_pos >= target_mm) break;
+        if (millis() - start_time > general_timeout_ms) break;
+        
+        float dist_remaining = target_mm - avg_pos;
+        if (dist_remaining <= decel_distance_mm) {
+            current_base_speed -= decel_step;
+            if (current_base_speed < min_speed) current_base_speed = min_speed;
+        } else {
+            if (current_base_speed < abs_target_speed) {
+                current_base_speed += accel_step;
+                if (current_base_speed > abs_target_speed) current_base_speed = abs_target_speed;
+            }
+        }
+        
+        float diff = abs_l - abs_r;
+        float correction = std::max(-max_corr, std::min(diff * kp, max_corr));
+        
+        float speed_l_mag = current_base_speed - correction;
+        float speed_r_mag = current_base_speed + correction;
+        
+        // DOPRAVA = levé kolo jede vpřed, pravé couvá
+        rkMotorsSetSpeed(clamp_speed(speed_l_mag), clamp_speed(-speed_r_mag));
+        delay(10);
+    }
+    rkMotorsSetSpeed(0, 0);
 }
