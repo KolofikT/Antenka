@@ -47,8 +47,8 @@ void setup() {
     cfg.roztec_kol = 155.0; // v mm
     cfg.konstanta_radius_vnejsi_kolo = 0.96f; // Korekční faktor pro vnější kolo při zatáčení
     cfg.konstanta_radius_vnitrni_kolo = 0.96f; // Korekční faktor pro vnitřní kolo při zatáčení
-    cfg.korekce_nedotacivosti_left = 0.953f; // Kalibrace z 10x 90° (900/895 * 0.948)
-    cfg.korekce_nedotacivosti_right = 0.948f; // Kalibrace z 10x 90° (900/910 * 0.959)
+    cfg.korekce_nedotacivosti_left = 0.958f; // Kalibrace plna baterie z 10x 90° (900/895 * 0.953)
+    cfg.korekce_nedotacivosti_right = 0.948f; // Kalibrace z 10x 90° (900/902 * 0.950)
     cfg.Button1 = 27; // RIGHT
     cfg.Button2 = 14; // LEFT
     cfg.motor_id_left = 4;
@@ -228,8 +228,8 @@ void loop() {
     // }
 
     // Ruční nastavování pozice Manipulátoru
-    if (rkButtonIsPressed(BTN_UP))      {  }
-    if (rkButtonIsPressed(BTN_DOWN))    { rkSmartServoMove(0, rkSmartServosPosicion(0) - 5 ); } 
+    if (rkButtonIsPressed(BTN_UP))      { delay(1000); move_acc_avoid(1000.0f, 100, []() { return false; }, 8000); }
+    if (rkButtonIsPressed(BTN_DOWN))    { delay(1000); move_acc_avoid(-1000.0f, 100, []() { return false; }, 8000); }
     
     // TEST 10x 90 stupnu VLEVO
     if (rkButtonLeft(true)) {

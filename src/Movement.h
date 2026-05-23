@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <algorithm>
 #include <functional>
 #include <cmath>
 #include "robotka.h"
@@ -24,7 +25,9 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
     
     // Podpora pro jízdu pozpátku
     bool reverse = (mm < 0);
-    float target_mm = std::abs(mm); // Cílová vzdálenost bude vždy kladná (pro výpočet ušlé dráhy)
+    
+    float distance_correction = 1000.0f / 1015.0f; // Kalibrace na míru: ujede 1015 místo 1000
+    float target_mm = std::abs(mm) * distance_correction; // Cílová vzdálenost bude vždy kladná (pro výpočet ušlé dráhy)
     
     // Normalizace rychlosti (aby znaménko rychlosti odpovídalo směru)
     float abs_target_speed = std::abs(speed);
@@ -35,19 +38,17 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
     rkMotorsSetPositionRight(0);
     delay(50); // Krátká pauza, aby se koprocesor stihl zresetovat
     
-    float min_speed = 18.0f;
+    float min_speed = 18.0f; // Vráceno na 18. Při nižší rychlosti ztrácí motor kroutící moment a zasekává se
     if (abs_target_speed < min_speed) { abs_target_speed = min_speed; }
     
     float current_base_speed = min_speed * speed_sign;
     
     // Parametry rampy a P-regulátoru
-    float decel_distance_mm = 2.5f * abs_target_speed; // Plynulé brzdění (při rychlosti 40% brzdí už 100 mm před cílem)
     float accel_step = abs_target_speed / 100.0f; // Jemná akcelerace (rozjezd na max. rychlost zabere 1 sekundu)
-    float decel_step = abs_target_speed / 100.0f; // Jemné zpomalování bez smyku kol
+    float decel_step = abs_target_speed / 150.0f; // Zjemněné zpomalování (táhlejší a hladší dojezd)
     float avoid_decel_step = abs_target_speed / 5.0f; // Rychlé zastavení před překážkou (cca 50 ms)
     
-    float kp = 0.8f; // Proporcionální konstanta pro P-regulátor na milimetry
-    float max_corr = 8.0f; // Maximální zásah regulátoru (%)
+    float kp = 0.8f; // P-regulator pro drzeni roviny
     
     unsigned long start_time = millis();
     unsigned long avoid_wait_start = 0;
@@ -85,6 +86,8 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
             return {false, reverse ? -avg_pos : avg_pos}; 
         }
         
+        float dist_remaining = target_mm - avg_pos;
+        
         bool obstacle = is_obstacle();
         
         if (obstacle) {
@@ -114,8 +117,11 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
                 current_base_speed = min_speed * speed_sign; 
             }
             
-            float dist_remaining = target_mm - avg_pos;
-            if (dist_remaining <= decel_distance_mm) {
+            // Dynamická brzdná dráha: čím rychleji AKTUÁLNĚ jede, tím dál před cílem začne brzdit.
+            // Díky tomu to funguje skvěle na 1 metr (dlouhá rampa) i na 50 mm (krátká rampa, nepřestřelí).
+            float required_decel_distance = 4.0f * std::abs(current_base_speed);
+            
+            if (dist_remaining <= required_decel_distance) {
                 // Fáze: Běžné plynulé zpomalování před cílem
                 float abs_curr = std::abs(current_base_speed);
                 abs_curr -= decel_step;
@@ -134,17 +140,38 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
         
         // Aplikace rychlosti a P-regulátoru pro udržení směru
         if (current_base_speed != 0) {
-            float diff = abs_l - abs_r; // Kladné -> levé kolo je napřed
-            float correction = std::max(-max_corr, std::min(diff * kp, max_corr));
+            float abs_curr = std::abs(current_base_speed);
+            float diff = abs_l - abs_r; // Kladné -> levé kolo ujelo víc
             
-            float speed_l = current_base_speed;
-            float speed_r = current_base_speed;
+            // PROBLÉM 3: Couvání s vlečným kolečkem je mechanicky nestabilní.
+            // Pro couvání použijeme jemnější P-konstantu (o 40 % menší agresivita).
+            float current_kp = reverse ? (kp * 0.6f) : kp;
             
-            // Pokud je levé kolo napřed, zpomalíme levé a zrychlíme pravé
-            speed_l -= correction * speed_sign; 
-            speed_r += correction * speed_sign;
+            // Dynamický limit: aby to při malých rychlostech mělo vůbec sílu zatáčet, 
+            // garantujeme minimální limit korekce 5%.
+            float max_c = std::max(abs_curr * 0.25f, 5.0f); 
+            float correction = std::max(-max_c, std::min(diff * current_kp, max_c));
             
-            rkMotorsSetSpeed(clamp_speed(speed_l), clamp_speed(speed_r));
+            float speed_l_abs = abs_curr - correction;
+            float speed_r_abs = abs_curr + correction;
+            
+            // OCHRANA PROTI ZASEKNUTÍ KOLA (Stall prevention)
+            // PROBLÉM 1 a 2: Tohle dělalo to prudké škubnutí před cílem a při couvání.
+            // Aplikujeme to jen tehdy, když nám do cíle zbývá VÍCE než 15 mm. 
+            // Těsně před cílem necháme rychlost volně klesnout i pod min_speed (setrvačnost to dojede).
+            if (dist_remaining > 15.0f) {
+                if (speed_l_abs < min_speed) {
+                    // Přenášíme jen POLOVINU rozdílu, aby to neškubalo druhým kolem tak silně
+                    speed_r_abs += (min_speed - speed_l_abs) * 0.5f; 
+                    speed_l_abs = min_speed;
+                }
+                if (speed_r_abs < min_speed) {
+                    speed_l_abs += (min_speed - speed_r_abs) * 0.5f; 
+                    speed_r_abs = min_speed;
+                }
+            }
+            
+            rkMotorsSetSpeed(clamp_speed(speed_l_abs * speed_sign), clamp_speed(speed_r_abs * speed_sign));
         } else {
             rkMotorsSetSpeed(0, 0);
         }
@@ -161,9 +188,9 @@ inline MoveResult move_acc_avoid(float mm, float speed, std::function<bool()> is
  * \param angle Úhel vázaný na rotaci (ve stupních).
  * \param speed Maximální rychlost v %.
  * \param roztec_kol Šířka mezi koly (výchozí 155.0 mm).
- * \param korekce Konstanta z kalibrace (výchozí 0.953 pro levou stranu).
+ * \param korekce Konstanta z kalibrace (výchozí 0.958 pro levou stranu).
  */
-inline void TurnOnSpotLeft_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.953f) {
+inline void TurnOnSpotLeft_acc(float angle, float speed, float roztec_kol = 155.0f, float korekce = 0.958f) {
     if (angle <= 0 || speed <= 0) return;
     
     // Výpočet cílové dráhy v mm pro jedno kolo
